@@ -22,7 +22,11 @@ from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters im
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import GeometricBloomFilter
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import LogarithmicBloomFilter
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import UnionEstimator
+from wfa_cardinality_estimation_evaluation_framework.estimators.liquid_legions import LiquidLegions
 from wfa_cardinality_estimation_evaluation_framework.estimators.cascading_legions import CascadingLegions
+from wfa_cardinality_estimation_evaluation_framework.estimators.cascading_legions_static_multihash import CascadingLegionsStaticMultiHash
+from wfa_cardinality_estimation_evaluation_framework.estimators.cascading_legions_static_multihash import CLSHEstimator
+from wfa_cardinality_estimation_evaluation_framework.estimators.cascading_legions_dynamic_multihash import CascadingLegionsDynamicMultiHash
 from wfa_cardinality_estimation_evaluation_framework.estimators.cascading_legions import Estimator
 from wfa_cardinality_estimation_evaluation_framework.estimators.exact_set import ExactMultiSet
 from wfa_cardinality_estimation_evaluation_framework.estimators.exact_set import LosslessEstimator
@@ -45,8 +49,10 @@ flags.DEFINE_integer(
     'The number of sets to depulicate across, AKA the number of publishers')
 flags.DEFINE_integer('number_of_trials', 10,
                      'The number of times to run the experiment')
-flags.DEFINE_integer('set_size', 1000, 'The size of all generated sets')
+flags.DEFINE_integer('set_size', 10000, 'The size of all generated sets')
 flags.DEFINE_integer('sketch_size', 8192, 'The size of sketches')
+flags.DEFINE_integer('legion_number', 12, 'The number of legions')
+flags.DEFINE_integer('legion_length', 8192, 'The length of each legion')
 flags.DEFINE_integer('exponential_bloom_filter_decay_rate', 10,
                      'The decay rate in exponential bloom filter')
 flags.DEFINE_integer('num_bloom_filter_hashes', 3,
@@ -63,6 +69,24 @@ def main(argv):
   estimator_config_cascading_legions = SketchEstimatorConfig(
       name='cascading-legions',
       sketch_factory=CascadingLegions.get_sketch_factory(
+          FLAGS.legion_number, FLAGS.legion_length),
+      estimator=Estimator())
+
+  estimator_config_liquid_legions = SketchEstimatorConfig(
+      name='liquid-legions',
+      sketch_factory=LiquidLegions.get_sketch_factory(
+            FLAGS.sketch_size, FLAGS.sketch_size),
+      estimator=Estimator())
+
+  estimator_config_cascading_legions_static_multihash = SketchEstimatorConfig(
+      name='cascading-legions-static-multihash',
+      sketch_factory=CascadingLegionsStaticMultiHash.get_sketch_factory(
+          FLAGS.legion_number, FLAGS.legion_length),
+      estimator=CLSHEstimator())
+
+  estimator_config_cascading_legions_dynamic_multihash = SketchEstimatorConfig(
+      name='cascading-legions-static-dynamic-multihash',
+      sketch_factory=CascadingLegionsDynamicMultiHash.get_sketch_factory(
           FLAGS.sketch_size, FLAGS.sketch_size),
       estimator=Estimator())
 
@@ -116,15 +140,18 @@ def main(argv):
           cardinality_estimator=LosslessEstimator()))
 
   estimator_config_list = [
-      estimator_config_bloom_filter,
-      estimator_config_logarithmic_bloom_filter,
-      estimator_config_geometric_bloom_filter,
-      estimator_config_exponential_bloom_filter,
+      # estimator_config_bloom_filter,
+      # estimator_config_cascading_legions_dynamic_multihash,
+      estimator_config_cascading_legions_static_multihash,
+      # estimator_config_logarithmic_bloom_filter,
+      # estimator_config_geometric_bloom_filter,
+      # estimator_config_exponential_bloom_filter,
       estimator_config_cascading_legions,
-      estimator_config_exact,
-      estimator_config_hll,
-      estimator_config_voc,
-      estimator_config_stratified,
+      # estimator_config_exact,
+      # estimator_config_hll,
+      # estimator_config_voc,
+      # estimator_config_stratified,
+      # estimator_config_liquid_legions,
   ]
 
   name_to_estimator_config = {
@@ -133,9 +160,12 @@ def main(argv):
       'logarithmic_bloom_filter': estimator_config_logarithmic_bloom_filter,
       'exponential_bloom_filter': estimator_config_exponential_bloom_filter,
       'cascading_legions': estimator_config_cascading_legions,
+      'cascading_legions_static_multihash': estimator_config_cascading_legions_static_multihash,
+      'cascading_legions_dynamic_multihash': estimator_config_cascading_legions_dynamic_multihash,
       'exact_set': estimator_config_exact,
       'hll++': estimator_config_hll,
       'vector_of_counts': estimator_config_voc,
+      'liquid-legions': estimator_config_liquid_legions,
       estimator_config_stratified.name: estimator_config_stratified,
   }
   set_generator_factory = (
@@ -146,7 +176,7 @@ def main(argv):
           set_size=FLAGS.set_size))
 
   for estimator_method_config in estimator_config_list:
-    print(f'Calculations for {estimator_method_config.name}')
+    print(f'\nCalculations for {estimator_method_config.name}')
     set_rs = np.random.RandomState(1)
     sketch_rs = np.random.RandomState(1)
     simulator = Simulator(

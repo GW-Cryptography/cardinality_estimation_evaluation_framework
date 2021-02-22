@@ -16,6 +16,9 @@
 import copy
 import math
 
+# ellie adding to get a second random seed...
+import numpy as np
+
 import farmhash
 import numpy
 from scipy import special
@@ -24,8 +27,8 @@ from wfa_cardinality_estimation_evaluation_framework.estimators import base
 from wfa_cardinality_estimation_evaluation_framework.estimators import bloom_filters
 
 
-class CascadingLegions(base.SketchBase):
-  """CascadingLegions sketch."""
+class CascadingLegionsStaticMultiHash(base.SketchBase):
+  """CascadingLegionsMultiHash sketch."""
 
   MEMOIZED_CARDINALITY = {}
 
@@ -38,8 +41,10 @@ class CascadingLegions(base.SketchBase):
       random_seed: A random seed for the hash function.
     """
     self.seed = random_seed
+    self.seed2 = np.random.RandomState(1).randint(2**32-1) # ellie - same process as the other seed, but we need a 2nd for the 2nd hash
     self.l = l
     self.m = m
+    self.k = 2
     self.mask = {}
     self.sketch = {}
     self.added_noise = 0
@@ -60,20 +65,33 @@ class CascadingLegions(base.SketchBase):
       f //= 2
     legion = min(legion, self.l - 1)
     f //= 2
-    return legion * self.m + f % self.m
+    return legion * self.m #+ f % self.m
 
-  def add_fingerprint(self, f):
+  def add_fingerprint(self, f, f2):
     """Add fingerprint to the estimator."""
-    b = self.get_bucket(f)
+    b = self.get_bucket(f) # ellie: they represent their sketch as one long data struct, so
+                           # get bucket also gets the register
+                           # SO, will remove the register logic from get_bucket
+                           # and do that logic here with two different hash
+                           # functions.
+    b1 = b + f % self.m
+
     # This is simulation of CascadingLegions same-key-aggregator
     # frequency estimator behavior.
-    self.mask[b] = self.mask.get(b, set()) | {f}
-    self.sketch[b] = self.sketch.get(b, 0) + 1
+    self.mask[b1] = self.mask.get(b1, set()) | {f}
+    self.sketch[b1] = self.sketch.get(b1, 0) + 1 # ellie - this always increments instead of conditionally incrementing. Maybe fine for cardinality but would mess up frequency
+
+    if self.k == 2: # ellie - if k = 2 then add the second hashed value to the bucket
+        b2 = b + f2 % self.m
+        self.mask[b2] = self.mask.get(b2, set()) | {f2}
+        self.sketch[b2] = self.sketch.get(b2, 0) + 1
+
 
   def add_id(self, item):
     """Add id to the estimator."""
     f = farmhash.hash32withseed(str(item), self.seed)
-    self.add_fingerprint(f)
+    f2 = farmhash.hash64withseed(str(item), self.seed2)
+    self.add_fingerprint(f, f2)
 
   def add_ids(self, item_iterable):
     """Add multiple ids to the estimator."""
@@ -87,8 +105,8 @@ class CascadingLegions(base.SketchBase):
       r = 0
       l = 0
       for l in range(1, self.l):
-        r += self.m * (1 - math.exp(-cardinality / (2 ** l * self.m)))
-      r += self.m * (1 - math.exp(-cardinality / (2 ** l * self.m)))
+        r += self.m * ((1 - math.exp(-(cardinality*self.k) / (2 ** l * self.m))))
+      r += self.m * ((1 - math.exp(-(cardinality*self.k) / (2 ** l * self.m))))
       self.MEMOIZED_CARDINALITY[cache_key] = r
     return self.MEMOIZED_CARDINALITY[cache_key]
 
@@ -154,7 +172,7 @@ class Noiser(base.SketchNoiserBase):
     return sketch_copy
 
 
-class Estimator(base.EstimatorBase):
+class CLSHEstimator(base.EstimatorBase):
   """Estimator for DP-noised CascadingLegions."""
 
   def __init__(self, flip_probability=None):
@@ -258,22 +276,30 @@ class Estimator(base.EstimatorBase):
     c = cls.correction_matrix(len(sketch_list), p)
     v = cls.legion_as_vector(sketch_list, legion_index)
     f = sum(v) - c[0, :].dot(v)
-    n = sketch_list[0].m
-    if f > n:
-      return 2 ** legion_index * n * 10
-    return -math.log(1 - f / n) * n * (2 ** (legion_index + 1))
+
+    m = sketch_list[0].m
+    k = sketch_list[0].k
+
+    if f > m: # if number of 1s > length of legions
+      return 2 ** legion_index * m * 10
+    return (-(math.log(1 - f / m) * m)/k) * (2 ** (legion_index + 1))
+    # ellie - added k above
 
   @classmethod
   def estimate_from_golden_legion(cls, sketch_list, p):
     """Estimate cardinality from Golden Legion."""
     l = sketch_list[0].l
     m = sketch_list[0].m
+    k = sketch_list[0].k
     for i in range(l):
       e = cls.estimate_from_one_legion(sketch_list, i, p)
       # i-th legion does sampling of 1 in 2 ** (i + 1). We declare legion
       # oversaturated if has more tha n / 2 items it in.
-      if e < m / 2 * 2 ** (i + 1):
-        print(i,end='')
+
+      # ellie - so they are saying its unusable if its more than 50% full.
+      # our equations show m/2 ln 2 instead of just m/2
+      if e < m/2 * (2 ** (i + 1)):
+        print(i,end='') # ellie - this prints the legion # that we are able to return on
         return e, i
     assert False, (
         f'Not enough legions to estimate. I have {l} legions, but the '

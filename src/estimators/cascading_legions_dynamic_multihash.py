@@ -24,8 +24,8 @@ from wfa_cardinality_estimation_evaluation_framework.estimators import base
 from wfa_cardinality_estimation_evaluation_framework.estimators import bloom_filters
 
 
-class CascadingLegions(base.SketchBase):
-  """CascadingLegions sketch."""
+class CascadingLegionsDynamicMultiHash(base.SketchBase):
+  """CascadingLegionsMultiHash sketch."""
 
   MEMOIZED_CARDINALITY = {}
 
@@ -60,20 +60,35 @@ class CascadingLegions(base.SketchBase):
       f //= 2
     legion = min(legion, self.l - 1)
     f //= 2
-    return legion * self.m + f % self.m
+    return legion * self.m #+ f % self.m
 
-  def add_fingerprint(self, f):
+  def add_fingerprint(self, f, f2):
     """Add fingerprint to the estimator."""
-    b = self.get_bucket(f)
+    b = self.get_bucket(f) # ellie: they represent their sketch as one long data struct, so
+                           # get bucket also gets the register
+                           # SO, will remove the register logic from get_bucket
+                           # and do that logic here with two different hash
+                           # functions.
+    b1 = b + f % self.m
+    b2 = b + f2 % self.m
     # This is simulation of CascadingLegions same-key-aggregator
     # frequency estimator behavior.
-    self.mask[b] = self.mask.get(b, set()) | {f}
-    self.sketch[b] = self.sketch.get(b, 0) + 1
+    self.mask[b1] = self.mask.get(b1, set()) | {f}
+    self.sketch[b1] = self.sketch.get(b1, 0) + 1
+
+    self.mask[b2] = self.mask.get(b2, set()) | {f2}
+    self.sketch[b2] = self.sketch.get(b2, 0) + 1
 
   def add_id(self, item):
     """Add id to the estimator."""
     f = farmhash.hash32withseed(str(item), self.seed)
-    self.add_fingerprint(f)
+    print("\n####### %d #######\n" % f)
+    print(type(f))
+    f2 = farmhash.hash64withseed(str(item), self.seed) # TODO: need different seeds
+    print("\n####### %d #######\n" % f2)
+    self.add_fingerprint(f, f2)
+    exit(0)
+    #self.add_fingerprint(f2)
 
   def add_ids(self, item_iterable):
     """Add multiple ids to the estimator."""
@@ -87,8 +102,8 @@ class CascadingLegions(base.SketchBase):
       r = 0
       l = 0
       for l in range(1, self.l):
-        r += self.m * (1 - math.exp(-cardinality / (2 ** l * self.m)))
-      r += self.m * (1 - math.exp(-cardinality / (2 ** l * self.m)))
+        r += self.m * (1 - math.exp(-(cardinality*l) / (2 ** l * self.m))) # cardinality*l where l==k
+      r += self.m * (1 - math.exp(-(cardinality*l) / (2 ** l * self.m)))
       self.MEMOIZED_CARDINALITY[cache_key] = r
     return self.MEMOIZED_CARDINALITY[cache_key]
 
@@ -267,13 +282,12 @@ class Estimator(base.EstimatorBase):
   def estimate_from_golden_legion(cls, sketch_list, p):
     """Estimate cardinality from Golden Legion."""
     l = sketch_list[0].l
-    m = sketch_list[0].m
+    n = sketch_list[0].m
     for i in range(l):
       e = cls.estimate_from_one_legion(sketch_list, i, p)
       # i-th legion does sampling of 1 in 2 ** (i + 1). We declare legion
       # oversaturated if has more tha n / 2 items it in.
-      if e < m / 2 * 2 ** (i + 1):
-        print(i,end='')
+      if e < n / 2 * 2 ** (i + 1):
         return e, i
     assert False, (
         f'Not enough legions to estimate. I have {l} legions, but the '
