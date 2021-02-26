@@ -173,7 +173,7 @@ class Estimator(base.EstimatorBase):
         flip_probability
     }, (f'Sketches have inconsistent noise. Actual: {sketch_noises}, but '
         f'should all be equal to {flip_probability}.')
-    if self.legion_by_legion:
+    if self.legion_by_legion == True:
       return self.estimate_from_all_golden_legions(
                 sketch_list, flip_probability)
     cardinality, unused_golden_legion_index = self.estimate_from_golden_legion(

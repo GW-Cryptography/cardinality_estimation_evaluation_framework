@@ -275,6 +275,8 @@ class Simulator(object):
             + [EST_CARD_ERR + str(i+12) for i in range(max_freq)]
             + [TRUE_CARDINALITY_BASENAME + str(i+1) for i in range(max_freq)]
             + [BEST_LEGION])
+        df = pd.DataFrame(metrics, columns=df_columns)
+        print(df)
     else:
         df_columns = (
             [NUM_SETS]
@@ -282,6 +284,6 @@ class Simulator(object):
             + [TRUE_CARDINALITY_BASENAME + str(i+1) for i in range(max_freq)]
             + [SHUFFLE_DISTANCE])
 
-    df = pd.DataFrame(metrics, columns=df_columns)
-    print(df)
+        df = pd.DataFrame(metrics, columns=df_columns)
+
     return df
