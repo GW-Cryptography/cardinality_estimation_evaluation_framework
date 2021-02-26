@@ -160,18 +160,22 @@ class Estimator(base.EstimatorBase):
   def __init__(self, flip_probability=None):
     self.flip_probability = flip_probability
 
-  def __call__(self, sketch_list):
+  def __call__(self, sketch_list, legion_by_legion=False):
     """Estimating cardinality of the union."""
     if not sketch_list:
       return [0]  # That was easy!
 
     flip_probability = self.flip_probability or sketch_list[0].added_noise
+    self.legion_by_legion = legion_by_legion
 
     sketch_noises = {s.added_noise for s in sketch_list}
     assert sketch_noises == {
         flip_probability
     }, (f'Sketches have inconsistent noise. Actual: {sketch_noises}, but '
         f'should all be equal to {flip_probability}.')
+    if self.legion_by_legion:
+      return self.estimate_from_all_golden_legions(
+                sketch_list, flip_probability)
     cardinality, unused_golden_legion_index = self.estimate_from_golden_legion(
         sketch_list, flip_probability)
     return [cardinality]
@@ -262,6 +266,23 @@ class Estimator(base.EstimatorBase):
     if f > n:
       return 2 ** legion_index * n * 10
     return -math.log(1 - f / n) * n * (2 ** (legion_index + 1))
+
+  @classmethod
+  def estimate_from_all_golden_legions(cls, sketch_list, p):
+    """Estimate cardinality from Golden Legion."""
+    l = sketch_list[0].l
+    m = sketch_list[0].m
+    all_legions_estimates = []
+    for i in range(l):
+      e = cls.estimate_from_one_legion(sketch_list, i, p)
+      all_legions_estimates.append(e)
+      # i-th legion does sampling of 1 in 2 ** (i + 1). We declare legion
+      # oversaturated if has more tha n / 2 items it in.
+    return all_legions_estimates
+    assert False, (
+        f'Not enough legions to estimate. I have {l} legions, but the '
+        f'cardinality appears to be greater than {e}.')
+
 
   @classmethod
   def estimate_from_golden_legion(cls, sketch_list, p):

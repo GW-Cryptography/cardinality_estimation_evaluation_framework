@@ -22,11 +22,14 @@ from wfa_cardinality_estimation_evaluation_framework.estimators.exact_set import
 
 
 RUN_INDEX = 'run_index'
-ESTIMATED_CARDINALITY_BASENAME = 'estimated_cardinality_'
+ESTIMATED_CARDINALITY_BASENAME = 'est_card_'
+EST_CARD_ERR = 'err_'
+ESTIMATED_CARDINALITY_BASENAME_LEGION = 'est_card_legion_'
 TRUE_CARDINALITY_BASENAME = 'true_cardinality_'
 RELATIVE_ERROR_BASENAME = 'relative_error_'
 NUM_SETS = 'num_sets'
 SHUFFLE_DISTANCE = 'shuffle_distance'
+BEST_LEGION = 'best_leg'
 
 
 class Simulator(object):
@@ -82,7 +85,7 @@ class Simulator(object):
     df_agg = df.groupby(NUM_SETS).agg(agg_groups)
     return df_agg
 
-  def run_all_and_aggregate(self):
+  def run_all_and_aggregate(self, LEGION_BY_LEGION=False):
     """Run all iterations and aggregate the results.
 
     Returns:
@@ -92,10 +95,13 @@ class Simulator(object):
     """
     dfs = []
     for t in range(self.num_runs):
-      df = self.run_one()
+      df = self.run_one(LEGION_BY_LEGION)
       df[RUN_INDEX] = t
       dfs.append(df)
     df = pd.concat(dfs, ignore_index=True)
+
+    if self.LEGION_BY_LEGION == True:
+        return df
 
     for i in range(self.sketch_estimator_config.max_frequency):
       df[RELATIVE_ERROR_BASENAME + str(i+1)] = relative_error(
@@ -149,7 +155,7 @@ class Simulator(object):
         np.array(self._extend_histogram(counts2, max_freq)) / np.sum(counts2))
     return 0.5 * np.sum(np.abs(freq1 - freq2))
 
-  def run_one(self):
+  def run_one(self, LEGION_BY_LEGION=False):
     """Run one iteration.
 
     Returns:
@@ -159,6 +165,7 @@ class Simulator(object):
     """
     set_generator = self.set_generator_factory(self.set_random_state)
     sketch_random_seed = self.sketch_random_state.randint(2**32-1)
+    self.LEGION_BY_LEGION = LEGION_BY_LEGION
 
     # Build the sketches and keep track of actual ids for
     # later comparison.
@@ -182,28 +189,99 @@ class Simulator(object):
     true_union = ExactMultiSet()
     metrics = []
     max_freq = self.sketch_estimator_config.max_frequency
-    for i in range(len(sketches)):
-      estimated_cardinality = self._extend_histogram(
-          estimator(sketches[:i + 1]), max_freq)
-      if hasattr(
-          self.sketch_estimator_config,
-          'estimate_noiser') and self.sketch_estimator_config.estimate_noiser:
-        estimated_cardinality = [
-            self.sketch_estimator_config.estimate_noiser(e)
-            for e in estimated_cardinality]
-      true_union.add_ids(actual_ids[i])
-      true_cardinality = self._extend_histogram(
-          LosslessEstimator()([true_union]), max_freq)
-      shuffle_distance = self._shuffle_distance(
-          estimated_cardinality, true_cardinality)
-      metrics.append(
-          [i + 1] + estimated_cardinality + true_cardinality
-          + [shuffle_distance])
 
-    df_columns = (
-        [NUM_SETS]
-        + [ESTIMATED_CARDINALITY_BASENAME + str(i+1) for i in range(max_freq)]
-        + [TRUE_CARDINALITY_BASENAME + str(i+1) for i in range(max_freq)]
-        + [SHUFFLE_DISTANCE])
+    if LEGION_BY_LEGION == True:
+        for i in range(len(sketches)):
+          estimate_error_rate = []
+          estimated_cardinality = estimator(sketches[:i + 1], LEGION_BY_LEGION)
+          true_union.add_ids(actual_ids[i])
+          true_cardinality = self._extend_histogram(
+              LosslessEstimator()([true_union]), max_freq)
+          for estimate in estimated_cardinality:
+            estimate_error_rate.append(abs(true_cardinality[0]-estimate)/true_cardinality[0])
+          shuffle_distance = estimate_error_rate.index(min(estimate_error_rate))
+          metrics.append(
+              [i + 1] + [estimated_cardinality[0]]
+              + [(true_cardinality[0]-estimated_cardinality[0])/true_cardinality[0]]
+              + [estimated_cardinality[1]]
+              + [(true_cardinality[0]-estimated_cardinality[1])/true_cardinality[0]]
+              + [estimated_cardinality[2]]
+              + [(true_cardinality[0]-estimated_cardinality[2])/true_cardinality[0]]
+              + [estimated_cardinality[3]]
+              + [(true_cardinality[0]-estimated_cardinality[3])/true_cardinality[0]]
+              + [estimated_cardinality[4]]
+              + [(true_cardinality[0]-estimated_cardinality[4])/true_cardinality[0]]
+              + [estimated_cardinality[5]]
+              + [(true_cardinality[0]-estimated_cardinality[5])/true_cardinality[0]]
+              + [estimated_cardinality[6]]
+              + [(true_cardinality[0]-estimated_cardinality[6])/true_cardinality[0]]
+              + [estimated_cardinality[7]]
+              + [(true_cardinality[0]-estimated_cardinality[7])/true_cardinality[0]]
+              + [estimated_cardinality[8]]
+              + [(true_cardinality[0]-estimated_cardinality[8])/true_cardinality[0]]
+              + [estimated_cardinality[9]]
+              + [(true_cardinality[0]-estimated_cardinality[9])/true_cardinality[0]]
+              + [estimated_cardinality[10]]
+              + [(true_cardinality[0]-estimated_cardinality[10])/true_cardinality[0]]
+              + [estimated_cardinality[11]]
+              + [(true_cardinality[0]-estimated_cardinality[11])/true_cardinality[0]]
+               + true_cardinality
+              + [shuffle_distance])
+    else:
+      for i in range(len(sketches)):
+        estimated_cardinality = self._extend_histogram(
+            estimator(sketches[:i + 1]), max_freq)
+        if hasattr(
+            self.sketch_estimator_config,
+            'estimate_noiser') and self.sketch_estimator_config.estimate_noiser:
+          estimated_cardinality = [
+              self.sketch_estimator_config.estimate_noiser(e)
+              for e in estimated_cardinality]
+        true_union.add_ids(actual_ids[i])
+        true_cardinality = self._extend_histogram(
+            LosslessEstimator()([true_union]), max_freq)
+        shuffle_distance = self._shuffle_distance(
+            estimated_cardinality, true_cardinality)
+        metrics.append(
+            [i + 1] + estimated_cardinality + true_cardinality
+            + [shuffle_distance])
+
+    if LEGION_BY_LEGION == True:
+        df_columns = (
+            [NUM_SETS] # ellie - this is hard coded right now with one row per legion
+            + [ESTIMATED_CARDINALITY_BASENAME_LEGION + str(i+1) for i in range(max_freq)]
+            + [EST_CARD_ERR + str(i+1) for i in range(max_freq)]
+            + [ESTIMATED_CARDINALITY_BASENAME_LEGION + str(i+2) for i in range(max_freq)]
+            + [EST_CARD_ERR + str(i+2) for i in range(max_freq)]
+            + [ESTIMATED_CARDINALITY_BASENAME_LEGION + str(i+3) for i in range(max_freq)]
+            + [EST_CARD_ERR + str(i+3) for i in range(max_freq)]
+            + [ESTIMATED_CARDINALITY_BASENAME_LEGION + str(i+4) for i in range(max_freq)]
+            + [EST_CARD_ERR + str(i+4) for i in range(max_freq)]
+            + [ESTIMATED_CARDINALITY_BASENAME_LEGION + str(i+5) for i in range(max_freq)]
+            + [EST_CARD_ERR + str(i+5) for i in range(max_freq)]
+            + [ESTIMATED_CARDINALITY_BASENAME_LEGION + str(i+6) for i in range(max_freq)]
+            + [EST_CARD_ERR + str(i+6) for i in range(max_freq)]
+            + [ESTIMATED_CARDINALITY_BASENAME_LEGION + str(i+7) for i in range(max_freq)]
+            + [EST_CARD_ERR + str(i+7) for i in range(max_freq)]
+            + [ESTIMATED_CARDINALITY_BASENAME_LEGION + str(i+8) for i in range(max_freq)]
+            + [EST_CARD_ERR + str(i+8) for i in range(max_freq)]
+            + [ESTIMATED_CARDINALITY_BASENAME_LEGION + str(i+9) for i in range(max_freq)]
+            + [EST_CARD_ERR + str(i+9) for i in range(max_freq)]
+            + [ESTIMATED_CARDINALITY_BASENAME_LEGION + str(i+10) for i in range(max_freq)]
+            + [EST_CARD_ERR + str(i+10) for i in range(max_freq)]
+            + [ESTIMATED_CARDINALITY_BASENAME_LEGION + str(i+11) for i in range(max_freq)]
+            + [EST_CARD_ERR + str(i+11) for i in range(max_freq)]
+            + [ESTIMATED_CARDINALITY_BASENAME_LEGION + str(i+12) for i in range(max_freq)]
+            + [EST_CARD_ERR + str(i+12) for i in range(max_freq)]
+            + [TRUE_CARDINALITY_BASENAME + str(i+1) for i in range(max_freq)]
+            + [BEST_LEGION])
+    else:
+        df_columns = (
+            [NUM_SETS]
+            + [ESTIMATED_CARDINALITY_BASENAME + str(i+1) for i in range(max_freq)]
+            + [TRUE_CARDINALITY_BASENAME + str(i+1) for i in range(max_freq)]
+            + [SHUFFLE_DISTANCE])
+
     df = pd.DataFrame(metrics, columns=df_columns)
+    print(df)
     return df

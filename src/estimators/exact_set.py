@@ -69,8 +69,9 @@ class ExactMultiSet(SketchBase):
 class LosslessEstimator(EstimatorBase):
   """A lossless estimator for ExactMultiSet."""
 
-  def __init__(self):
+  def __init__(self,  legion_by_legion=False):
     EstimatorBase.__init__(self)
+    self.legion_by_legion = legion_by_legion
 
   def __call__(self, sketch_list):
     """Returns sketch frequency histogram."""
